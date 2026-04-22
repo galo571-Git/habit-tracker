@@ -234,6 +234,36 @@
       font-weight: 400;
     }
 
+    /* ── Drag handle ── */
+    .drag-handle {
+      color: var(--muted);
+      cursor: grab;
+      font-size: 1.1rem;
+      padding: .2rem .1rem;
+      line-height: 1;
+      user-select: none;
+    }
+    .drag-handle:active { cursor: grabbing; }
+    .card.dragging  { opacity: .35; }
+    .card.drag-over { border-top: 2px solid var(--accent); }
+
+    /* ── Inline name edit ── */
+    .habit-name { cursor: pointer; }
+    .habit-name:hover { text-decoration: underline; text-decoration-color: var(--muted); }
+
+    .name-edit-input {
+      background: transparent;
+      border: none;
+      border-bottom: 1.5px solid var(--accent);
+      color: var(--text);
+      font-size: .9375rem;
+      font-weight: 500;
+      outline: none;
+      width: 100%;
+      padding: 0;
+      font-family: inherit;
+    }
+
     /* ── Delete button ── */
     .del-btn {
       background: transparent;
@@ -386,12 +416,15 @@
         const s      = streak(h.completions);
         const total  = h.completions.length;
         return `
-          <div class="card${isDone ? ' done' : ''}" data-id="${h.id}">
+          <div class="card${isDone ? ' done' : ''}" data-id="${h.id}" draggable="true"
+               ondragstart="dragStart(event,'${h.id}')" ondragover="dragOver(event,'${h.id}')"
+               ondrop="drop(event,'${h.id}')" ondragend="dragEnd()">
+            <span class="drag-handle" title="Drag to reorder">⠿</span>
             <button class="check-btn" onclick="toggle('${h.id}')" title="${isDone ? 'Uncheck' : 'Check off'}">
               ${isDone ? '✓' : ''}
             </button>
             <div class="habit-info">
-              <div class="habit-name">${esc(h.name)}</div>
+              <div class="habit-name" onclick="startEdit('${h.id}')" title="Click to rename">${esc(h.name)}</div>
               <div class="habit-sub">${isDone ? '&#10003; Done today' : 'Not done yet'} &middot; ${total} total</div>
             </div>
             <div class="streak${s === 0 ? ' zero' : ''}">
@@ -423,6 +456,75 @@
     data.habits = data.habits.filter(h => h.id !== id);
     store(data);
     render();
+  };
+
+  /* ── Inline name edit ── */
+  window.startEdit = id => {
+    const nameEl = document.querySelector(`[data-id="${id}"] .habit-name`);
+    if (!nameEl) return;
+    const data = load();
+    const h = data.habits.find(h => h.id === id);
+    if (!h) return;
+
+    const input = document.createElement('input');
+    input.className = 'name-edit-input';
+    input.value = h.name;
+    input.maxLength = 60;
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let committed = false;
+    const commit = () => {
+      if (committed) return;
+      committed = true;
+      const val = input.value.trim();
+      if (val && val !== h.name) {
+        const d = load();
+        const habit = d.habits.find(x => x.id === id);
+        if (habit) { habit.name = val; store(d); }
+      }
+      render();
+    };
+
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { input.blur(); }
+      if (e.key === 'Escape') { committed = true; render(); }
+    });
+  };
+
+  /* ── Drag to reorder ── */
+  let dragging = null;
+
+  window.dragStart = (e, id) => {
+    dragging = id;
+    e.currentTarget.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  window.dragOver = (e, id) => {
+    e.preventDefault();
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('drag-over'));
+    if (id !== dragging) document.querySelector(`[data-id="${id}"]`)?.classList.add('drag-over');
+  };
+
+  window.drop = (e, id) => {
+    e.preventDefault();
+    if (!dragging || dragging === id) return;
+    const data = load();
+    const from = data.habits.findIndex(h => h.id === dragging);
+    const to   = data.habits.findIndex(h => h.id === id);
+    const [moved] = data.habits.splice(from, 1);
+    data.habits.splice(to, 0, moved);
+    store(data);
+    dragging = null;
+    render();
+  };
+
+  window.dragEnd = () => {
+    dragging = null;
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('dragging', 'drag-over'));
   };
 
   document.getElementById('add-form').addEventListener('submit', e => {
